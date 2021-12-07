@@ -1,0 +1,4 @@
+/home/ubuntu/code/bluesky/cmake/CMakeFiles/rebuild_cache.dir
+/home/ubuntu/code/bluesky/cmake/CMakeFiles/edit_cache.dir
+/home/ubuntu/code/bluesky/cmake/CMakeFiles/bluesky.dir
+/home/ubuntu/code/bluesky/cmake/CMakeFiles/test.dir

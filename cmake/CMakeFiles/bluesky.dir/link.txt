@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -O3 -g -std=c++11 -Wall -pthread  -shared -Wl,-soname,libbluesky.so -o ../lib/libbluesky.so CMakeFiles/bluesky.dir/bluesky/log.cc.o CMakeFiles/bluesky.dir/bluesky/util.cc.o CMakeFiles/bluesky.dir/bluesky/config.cc.o   -L/usr/local/lib 
