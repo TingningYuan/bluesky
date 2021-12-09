@@ -106,13 +106,14 @@ namespace bluesky
         }
     }
 
-    LogEventWrap::LogEventWrap(std::shared_ptr<LogEvent> event)
-        :event_(event)
+    LogEventWrap::LogEventWrap(std::shared_ptr<Logger> logger,
+                                std::shared_ptr<LogEvent> event)
+        :logger_(logger), event_(event)
     {}
 
     LogEventWrap::~LogEventWrap()
     {
-        event_->get_logger()->log(event_->get_loglevel(), event_);
+        logger_->log(event_->get_loglevel(), event_);
     }
 
     std::stringstream& LogEventWrap::get_ss()

@@ -103,15 +103,16 @@ namespace bluesky
     class LogEventWrap
     {
     public:
-        LogEventWrap(std::shared_ptr<LogEvent> event);
+        LogEventWrap(std::shared_ptr<Logger> logger, std::shared_ptr<LogEvent> event);
         ~LogEventWrap();
 
         std::shared_ptr<LogEvent> get_event() const { return event_; }
-
+        std::shared_ptr<Logger> get_logger() const { return logger_; }
         std::stringstream &get_ss();
 
     private:
         std::shared_ptr<LogEvent> event_;
+        std::shared_ptr<Logger> logger_;
     };
 
     //日志器定义
@@ -249,7 +250,7 @@ namespace bluesky
 //使用logger写入日志级别为level的日志
 #define BLUESKY_LOG_LEVEL(logger, level)                                                                    \
     if (logger->get_level() <= level)                                                                       \
-    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger, level,           \
+    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(logger, new bluesky::LogEvent(logger, level,           \
                                                                                    __FILE__,                \
                                                                                    __LINE__, 0,             \
                                                                                    bluesky::get_threadID(), \
@@ -271,7 +272,7 @@ namespace bluesky
 /*-----------------格式化 printf日志-----------------*/
 #define BLUESKY_LOG_FMT_LEVEL(logger, level, fmt, ...)                                                      \
     if (logger->get_level() <= level)                                                                       \
-    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger, level,           \
+    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(logger, new bluesky::LogEvent(logger, level,           \
                                                                                    __FILE__,                \
                                                                                    __LINE__, 0,             \
                                                                                    bluesky::get_threadID(), \
