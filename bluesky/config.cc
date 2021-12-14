@@ -47,13 +47,13 @@ namespace bluesky
             {
                 if (node.second.IsScalar())
                 {
-                    var->from_string(node.second.Scalar());
+                    var->fromString(node.second.Scalar());
                 }
                 else
                 {
                     std::stringstream ss;
                     ss << node.second;
-                    var->from_string(ss.str());
+                    var->fromString(ss.str());
                 }
             }
         }

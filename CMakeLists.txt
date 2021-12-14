@@ -14,6 +14,7 @@ set(LIB_SRC
     bluesky/log.cc
     bluesky/util.cc
     bluesky/config.cc
+    bluesky/log_config.cc
     )
 
 find_library(YAMLCPP yaml-cpp)

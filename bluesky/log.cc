@@ -1,32 +1,50 @@
 #include "log.h"
-
+#include "config.h"
+#include <yaml-cpp/yaml.h>
+#include <algorithm>
 namespace bluesky
 {
     /*-------------LoggerManager---------------*/
     LoggerManager::LoggerManager()
     {
         root_.reset(new Logger);
-        root_->add_appender(std::shared_ptr<bluesky::LogAppender>(new bluesky::StdoutLogAppender));
+        root_->add_appender(std::shared_ptr<LogAppender>(new bluesky::StdoutLogAppender));
+        //root_->add_appender(std::shared_ptr<LogAppender>(new FileLogAppender("../bin/config/log.yaml")));
+        init();
     }
 
     std::shared_ptr<Logger> LoggerManager::get_logger(const std::string &name)
     {
-        for (auto iter = loggers_.begin(); iter != loggers_.end();iter++)
+        auto iter = loggers_.find(name);
+        if (iter != loggers_.end())
         {
-            if(iter->first.compare(name))
-            {
-                return iter->second;
-            }
+            return iter->second;
         }
-        return nullptr;
+        std::shared_ptr<Logger> logger(new Logger(name));
+        logger->root_ = root_;
+        loggers_[name] = logger;
+
+        return logger;
+    }
+
+    std::string LoggerManager::toYamlString()
+    {
+        YAML::Node node;
+        for (auto &logger : loggers_)
+        {
+            node.push_back(YAML::Load(logger.second->toYamlString()));
+        }
+        std::stringstream ss;
+        ss << node;
+        return ss.str();
     }
 
     void LoggerManager::init()
     {
-        loggers_["root_"] = get_root();
+        loggers_[root_->get_name()] = get_root();
     }
-    /*-----------LoggerManager End-------------*/
 
+    /*-----------LoggerManager End-------------*/
 
     /*--------------Logger Level--------------*/
     std::string LogLevel::to_string(LogLevel::Level level)
@@ -34,6 +52,9 @@ namespace bluesky
         std::string str = "Unknown";
         switch (level)
         {
+        case 0:
+            str = "unknow";
+            break;
         case 1:
             str = "debug";
             break;
@@ -41,7 +62,7 @@ namespace bluesky
             str = "info";
             break;
         case 3:
-            str = "warnning";
+            str = "warn";
             break;
         case 4:
             str = "error";
@@ -50,11 +71,16 @@ namespace bluesky
             str = "fatal";
             break;
         }
-        return str.c_str();
+        return str;
     }
 
-    LogLevel::Level from_string(const std::string &str_level)
+    LogLevel::Level LogLevel::from_string(std::string &str_level)
     {
+        std::transform(str_level.begin(), str_level.end(), str_level.begin(), ::tolower);
+        if (str_level.compare("unknow") || str_level.compare("UNKNOW"))
+        {
+            return LogLevel::Level::UNKNOW;
+        }
         if (str_level.compare("debug") || str_level.compare("DEBUG"))
         {
             return LogLevel::Level::DEBUG;
@@ -63,9 +89,9 @@ namespace bluesky
         {
             return LogLevel::Level::INFO;
         }
-        if (str_level.compare("warnning") || str_level.compare("WARNNING"))
+        if (str_level.compare("warn") || str_level.compare("WARN"))
         {
-            return LogLevel::Level::WARNNING;
+            return LogLevel::Level::WARN;
         }
         if (str_level.compare("error") || str_level.compare("ERROR"))
         {
@@ -80,12 +106,13 @@ namespace bluesky
     /*------------Logger Level End------------*/
 
     /*--------------Logger Event--------------*/
-    LogEvent::LogEvent(std::shared_ptr<Logger> logger, LogLevel::Level level, const std::string& filename,
+    LogEvent::LogEvent(std::string logger_name, LogLevel::Level level, const std::string &filename,
                        int32_t line, uint64_t elapse, uint32_t threadID, uint32_t fiberID, uint64_t time)
-        : logger_(logger), level_(level), filename_(filename),
+        : logger_name_(logger_name), level_(level), filename_(filename),
           line_(line), threadID_(threadID), fiberID_(fiberID), time_(time),
           elapse_(elapse)
-    {}
+    {
+    }
 
     void LogEvent::format(const char *fmt, ...)
     {
@@ -106,21 +133,21 @@ namespace bluesky
         }
     }
 
-    LogEventWrap::LogEventWrap(std::shared_ptr<Logger> logger,
-                                std::shared_ptr<LogEvent> event)
-        :logger_(logger), event_(event)
-    {}
+    LogEventWrap::LogEventWrap(const std::shared_ptr<Logger> &logger,
+                               const std::shared_ptr<LogEvent> &event)
+        : logger_(logger), event_(event)
+    {
+    }
 
     LogEventWrap::~LogEventWrap()
     {
         logger_->log(event_->get_loglevel(), event_);
     }
 
-    std::stringstream& LogEventWrap::get_ss()
+    std::stringstream &LogEventWrap::get_ss()
     {
         return event_->get_ss();
     }
-
 
     /*------------Logger Event End------------*/
 
@@ -128,7 +155,9 @@ namespace bluesky
     Logger::Logger(const std::string &name, LogLevel::Level level)
         : name_(name), level_(level)
     {
-        formater_.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
+        formatter_.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
+
+        //appenders_.push_back(std::shared_ptr<LogAppender>(new StdoutLogAppender));
     }
 
     void Logger::log(LogLevel::Level level, const std::shared_ptr<LogEvent> event)
@@ -136,9 +165,16 @@ namespace bluesky
         if (level >= level_)
         {
             auto self = shared_from_this();
-            for (auto &app : appenders_)
+            if (!appenders_.empty())
             {
-               app->log(self, level, event);
+                for (auto &app : appenders_)
+                {
+                    app->log(self, level, event);
+                }
+            }
+            else if (root_)
+            {
+                root_->log(level, event);
             }
         }
     }
@@ -154,9 +190,9 @@ namespace bluesky
         log(LogLevel::INFO, event);
     }
 
-    void Logger::warnning(std::shared_ptr<LogEvent> event)
+    void Logger::warn(std::shared_ptr<LogEvent> event)
     {
-        log(LogLevel::WARNNING, event);
+        log(LogLevel::WARN, event);
     }
 
     void Logger::error(std::shared_ptr<LogEvent> event)
@@ -172,8 +208,9 @@ namespace bluesky
     /*---------------------增删appender-------------*/
     void Logger::add_appender(std::shared_ptr<LogAppender> appender)
     {
-        if(!appender->get_formatter()){
-            appender->set_formatter(formater_);
+        if (!appender->get_formatter())
+        {
+            appender->set_formatter(formatter_);
         }
         appenders_.push_back(appender);
     }
@@ -190,31 +227,103 @@ namespace bluesky
             }
         }
     }
-    
-    void Logger::clear_appender(std::shared_ptr<LogAppender> appender)
+
+    void Logger::clear_appender()
     {
         appenders_.clear();
+    }
+
+    void Logger::set_formatter(std::shared_ptr<LogFormatter> &formatter)
+    {
+        formatter_ = formatter;
+    }
+    void Logger::set_formatter(const std::string &value)
+    {
+        std::shared_ptr<LogFormatter> new_value(new LogFormatter(value));
+        if (new_value->is_error())
+        {
+            std::cout << "Logger set_formatter name=" << name_
+                      << " value=" << value << " invalid formatter" << std::endl;
+            return;
+        }
+        formatter_ = new_value;
+    }
+
+    std::string Logger::toYamlString()
+    {
+        YAML::Node node;
+        node["name"] = name_;
+        if (level_ != LogLevel::UNKNOW)
+        {
+            node["level"] = LogLevel::to_string(level_);
+        }
+        if (formatter_)
+        {
+            node["formatter"] = formatter_->get_pattern();
+        }
+        for (auto &appender : appenders_)
+        {
+            node["appender"].push_back(YAML::Load(appender->toYamlString()));
+        }
+        std::stringstream ss;
+        ss << node;
+        return ss.str();
     }
 
     /*------------------Logger End--------------*/
 
     /*------------------Appender----------------*/
-    void LogAppender::set_formatter(std::shared_ptr<LogFormatter> formatter)
+    void
+    LogAppender::set_formatter(std::shared_ptr<LogFormatter> formatter)
     {
         formatter_ = formatter;
-        if(formatter_){
+        if (formatter_)
+        {
             has_formatter_ = true;
         }
     }
 
-    void StdoutLogAppender::log(std::shared_ptr<Logger> logger,LogLevel::Level level, std::shared_ptr<LogEvent> event)
+    void StdoutLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event)
     {
         if (level >= get_level())
         {
-            std::cout << get_formatter()->format(logger,level,event);
+            std::cout << get_formatter()->format(logger, level, event);
         }
     }
 
+    std::string StdoutLogAppender::toYamlString()
+    {
+        YAML::Node node;
+        node["type"] = "StdoutLogAppender";
+        if (level_ != LogLevel::UNKNOW)
+        {
+            node["level"] = LogLevel::to_string(level_);
+        }
+        if (formatter_)
+        {
+            node["formatter"] = formatter_->get_pattern();
+        }
+        std::stringstream ss;
+        ss << node;
+        return ss.str();
+    }
+
+    std::string FileLogAppender::toYamlString()
+    {
+        YAML::Node node;
+        node["type"] = "FileLogAppender";
+        if (level_ != LogLevel::UNKNOW)
+        {
+            node["level"] = LogLevel::to_string(level_);
+        }
+        if (formatter_)
+        {
+            node["formatter"] = formatter_->get_pattern();
+        }
+        std::stringstream ss;
+        ss << node;
+        return ss.str();
+    }
     FileLogAppender::FileLogAppender(const std::string &filename)
         : filename_(filename)
     {
@@ -255,74 +364,74 @@ namespace bluesky
         }
     };
 
-    class LevelFormatItem:public LogFormatter::FormatItem
+    class LevelFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        LevelFormatItem(const std::string &str="") {}
+    public:
+        LevelFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << LogLevel::to_string(event->get_loglevel());
         }
     };
 
-    class ElapseFormatItem:public LogFormatter::FormatItem
+    class ElapseFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        ElapseFormatItem(const std::string& str="") {}
+    public:
+        ElapseFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_elapse();
         }
-
     };
 
-    class NameFormatItem:public LogFormatter::FormatItem
+    class NameFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        NameFormatItem(const std::string& str="") {}
+    public:
+        NameFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
-            os << event->get_logger()->get_name();
+            os << event->get_loggername();
         }
     };
 
-    class ThreadIdFormatItem:public LogFormatter::FormatItem
+    class ThreadIdFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        ThreadIdFormatItem(const std::string& str=""){}
-        
+    public:
+        ThreadIdFormatItem(const std::string &str = "") {}
+
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_threadID();
         }
     };
 
-    class FiberIdFormatItem:public LogFormatter::FormatItem
+    class FiberIdFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        FiberIdFormatItem(const std::string& str=""){}
+    public:
+        FiberIdFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_fiberID();
         }
     };
 
-    class ThreadNameFormatItem:public LogFormatter::FormatItem
+    class ThreadNameFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        ThreadNameFormatItem(const std::string& str="") {}
+    public:
+        ThreadNameFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_threadname();
         }
-    }; 
+    };
 
-    class DateTimeFormatItem:public LogFormatter::FormatItem
+    class DateTimeFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        DateTimeFormatItem(const std::string &format="%Y-%m-%d %H:%M:%S")
-        :format_(format)
-        {}
+    public:
+        DateTimeFormatItem(const std::string &format = "%Y-%m-%d %H:%M:%S")
+            : format_(format)
+        {
+        }
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             struct tm tm;
@@ -333,65 +442,66 @@ namespace bluesky
             os << buf;
         }
 
-        private:
-            std::string format_;
+    private:
+        std::string format_;
     };
 
-    class FilenameFormatItem:public LogFormatter::FormatItem
+    class FilenameFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        FilenameFormatItem(const std::string& str=""){}
+    public:
+        FilenameFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_filename();
         }
     };
-    
-    class LineFormatItem:public LogFormatter::FormatItem
+
+    class LineFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        LineFormatItem(const std::string& str="") {}
+    public:
+        LineFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << event->get_line();
         }
     };
 
-    class NewLineFormatItem:public LogFormatter::FormatItem
+    class NewLineFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        NewLineFormatItem(const std::string& str=""){}
+    public:
+        NewLineFormatItem(const std::string &str = "") {}
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << std::endl;
         }
     };
 
-    class StringFormatItem:public LogFormatter::FormatItem
+    class StringFormatItem : public LogFormatter::FormatItem
     {
-        public:
-        StringFormatItem(const std::string& str=""):str_(str)
-        {}
+    public:
+        StringFormatItem(const std::string &str = "") : str_(str)
+        {
+        }
         void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
         {
             os << str_;
         }
 
-        private:
-            std::string str_;
+    private:
+        std::string str_;
     };
 
-    class TabFormatItem: public LogFormatter::FormatItem
+    class TabFormatItem : public LogFormatter::FormatItem
     {
-        public:
-            TabFormatItem(const std::string &str = ""):str_(str){};
-            void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
-            {
-                os << "\t";
-            }
+    public:
+        TabFormatItem(const std::string &str = "") : str_(str){};
+        void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override
+        {
+            os << "\t";
+        }
 
-        private:
-            std::string str_;
+    private:
+        std::string str_;
     };
 
     LogFormatter::LogFormatter(const std::string &pattern) : pattern_(pattern)
@@ -494,23 +604,25 @@ namespace bluesky
             vec.push_back(std::make_tuple(nstr, "", 0));
         }
 
-        static std::map<std::string, std::function<FormatItem::Ptr(const std::string& str)> > s_format_items = {
-#define XX(str, C) \
-        {#str, [](const std::string& fmt) { return FormatItem::Ptr(new C(fmt));}}
+        static std::map<std::string, std::function<FormatItem::Ptr(const std::string &str)>> s_format_items = {
+#define XX(str, C)                                                               \
+    {                                                                            \
+#str, [](const std::string &fmt) { return FormatItem::Ptr(new C(fmt)); } \
+    }
 
-        XX(m, MessageFormatItem),
-        XX(p, LevelFormatItem),
-        XX(r, ElapseFormatItem),
-        XX(c, NameFormatItem),
-        XX(t, ThreadIdFormatItem),
-        XX(n, NewLineFormatItem),
-        XX(d, DateTimeFormatItem),
-        XX(f, FilenameFormatItem),
-        XX(l, LineFormatItem),
-        XX(T, TabFormatItem),
-        XX(F, FiberIdFormatItem),
+            XX(m, MessageFormatItem),
+            XX(p, LevelFormatItem),
+            XX(r, ElapseFormatItem),
+            XX(c, NameFormatItem),
+            XX(t, ThreadIdFormatItem),
+            XX(n, NewLineFormatItem),
+            XX(d, DateTimeFormatItem),
+            XX(f, FilenameFormatItem),
+            XX(l, LineFormatItem),
+            XX(T, TabFormatItem),
+            XX(F, FiberIdFormatItem),
 #undef XX
-    };
+        };
 
         for (auto &v : vec)
         {
@@ -535,4 +647,5 @@ namespace bluesky
     }
 
     /*---------------Formatter End------*/
+
 } //end of namespace

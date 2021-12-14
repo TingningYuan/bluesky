@@ -27,9 +27,10 @@ namespace bluesky
         //定义日志级别
         enum Level
         {
+            UNKNOW = 0,
             DEBUG = 1,
             INFO = 2,
-            WARNNING = 3,
+            WARN = 3,
             ERROR = 4,
             FATAL = 5
         };
@@ -38,7 +39,7 @@ namespace bluesky
         static std::string to_string(LogLevel::Level level);
 
         //将文本转换成日志级别
-        static LogLevel::Level from_string(const std::string &str_level);
+        static Level from_string(std::string &str_level);
     };
 
     class LoggerManager
@@ -51,18 +52,21 @@ namespace bluesky
 
         void init();
         std::shared_ptr<Logger> get_root() const { return root_; }
-        //std::string to_yamlstring();
+        std::string toYamlString();
+
     private:
         std::map<std::string, std::shared_ptr<Logger>> loggers_;
         std::shared_ptr<Logger> root_;
     };
+
+    typedef bluesky::Singleton<LoggerManager> LoggerMgr;
 
     class LogEvent
     {
     public:
         typedef std::shared_ptr<LogEvent> Ptr;
 
-        LogEvent(std::shared_ptr<Logger> logger,
+        LogEvent(std::string logger_name,
                  LogLevel::Level level,
                  const std::string &filename,
                  int32_t line,
@@ -70,7 +74,7 @@ namespace bluesky
                  uint32_t threadID,
                  uint32_t fiberID,
                  uint64_t time);
-                 
+
         const std::string get_filename() const { return filename_; }
         const int32_t get_line() const { return line_; }
         const uint32_t get_threadID() const { return threadID_; }
@@ -79,7 +83,8 @@ namespace bluesky
         const uint64_t get_elapse() const { return elapse_; }
         const std::string get_threadname() const { return thread_name_; }
         const std::string get_content() const { return ss_.str(); }
-        std::shared_ptr<Logger> get_logger() const { return logger_; }
+        const std::string get_loggername() const { return logger_name_; }
+        //std::shared_ptr<Logger> get_logger() const { return logger_; }
         LogLevel::Level get_loglevel() const { return level_; }
         std::stringstream &get_ss() { return ss_; }
 
@@ -88,22 +93,23 @@ namespace bluesky
         void format(const char *fmt, va_list al);
 
     private:
-        std::string filename_;           //文件名
-        int32_t line_ = 0;               //行号
-        uint32_t threadID_ = 0;          //线程名
-        uint32_t fiberID_ = 0;           //协程ID
-        uint64_t time_;                  //时间戳
-        uint64_t elapse_;                //程序启动到现在的时间ms
-        std::string thread_name_;        //线程名
-        std::stringstream ss_;           //日志内容流
-        std::shared_ptr<Logger> logger_; //日志器
-        LogLevel::Level level_;          //日志等级
+        std::string filename_;    //文件名
+        int32_t line_ = 0;        //行号
+        uint32_t threadID_ = 0;   //线程名
+        uint32_t fiberID_ = 0;    //协程ID
+        uint64_t time_;           //时间戳
+        uint64_t elapse_;         //程序启动到现在的时间ms
+        std::string thread_name_; //线程名
+        std::stringstream ss_;    //日志内容流
+        //std::shared_ptr<Logger> logger_; //日志器
+        std::string logger_name_; //日志器名称
+        LogLevel::Level level_;   //日志等级
     };
 
     class LogEventWrap
     {
     public:
-        LogEventWrap(std::shared_ptr<Logger> logger, std::shared_ptr<LogEvent> event);
+        LogEventWrap(const std::shared_ptr<Logger>& logger, const std::shared_ptr<LogEvent>& event);
         ~LogEventWrap();
 
         std::shared_ptr<LogEvent> get_event() const { return event_; }
@@ -118,6 +124,8 @@ namespace bluesky
     //日志器定义
     class Logger : public std::enable_shared_from_this<Logger>
     {
+        friend LoggerManager;
+
     public:
         typedef std::shared_ptr<Logger> Ptr;
 
@@ -129,23 +137,31 @@ namespace bluesky
         //日志级别输出
         void debug(std::shared_ptr<LogEvent> event);
         void info(std::shared_ptr<LogEvent> event);
-        void warnning(std::shared_ptr<LogEvent> event);
+        void warn(std::shared_ptr<LogEvent> event);
         void error(std::shared_ptr<LogEvent> event);
         void fatal(std::shared_ptr<LogEvent> event);
 
         //增删appender
         void add_appender(std::shared_ptr<LogAppender> appender);
         void del_appender(std::shared_ptr<LogAppender> appender);
-        void clear_appender(std::shared_ptr<LogAppender> appender);
+        void clear_appender();
 
-        const std::string get_name() const { return name_; }
+        const std::string &get_name() const { return name_; }
         const LogLevel::Level get_level() const { return level_; }
+        void set_level(LogLevel::Level level) { level_ = level; }
+
+        //设置formatter
+        void set_formatter(std::shared_ptr<LogFormatter> &formatter);
+        void set_formatter(const std::string &value);
+        std::shared_ptr<LogFormatter> get_formatter();
+
+        std::string toYamlString();
 
     private:
         std::string name_;
         LogLevel::Level level_;
         std::list<std::shared_ptr<LogAppender>> appenders_;
-        std::shared_ptr<LogFormatter> formater_;
+        std::shared_ptr<LogFormatter> formatter_;
         Logger::Ptr root_;
     };
 
@@ -206,6 +222,7 @@ namespace bluesky
         virtual ~LogAppender() {}
 
         virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) = 0;
+        virtual std::string toYamlString() = 0;
 
     public:
         void set_formatter(std::shared_ptr<LogFormatter> formatter);
@@ -213,7 +230,7 @@ namespace bluesky
         LogLevel::Level get_level() const { return level_; }
         void set_level(LogLevel::Level level) { level_ = level; }
 
-    private:
+    public:
         LogLevel::Level level_;
         std::shared_ptr<LogFormatter> formatter_;
         bool has_formatter_ = false;
@@ -225,6 +242,7 @@ namespace bluesky
     public:
         typedef std::shared_ptr<StdoutLogAppender> Ptr;
         virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override;
+        virtual std::string toYamlString();
     };
 
     //输出到文件
@@ -234,6 +252,7 @@ namespace bluesky
         typedef std::shared_ptr<FileLogAppender> Ptr;
 
         FileLogAppender(const std::string &filename);
+        virtual std::string toYamlString();
         virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) override;
 
         //重新打开文件
@@ -244,18 +263,19 @@ namespace bluesky
         std::ofstream filestream_;
     };
 
+
 } //end of namespace
 
 /*----------------------流式日志------------------*/
 //使用logger写入日志级别为level的日志
-#define BLUESKY_LOG_LEVEL(logger, level)                                                                    \
-    if (logger->get_level() <= level)                                                                       \
-    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(logger, new bluesky::LogEvent(logger, level,           \
-                                                                                   __FILE__,                \
-                                                                                   __LINE__, 0,             \
-                                                                                   bluesky::get_threadID(), \
-                                                                                   bluesky::get_fiberID(),  \
-                                                                                   time(0))))               \
+#define BLUESKY_LOG_LEVEL(logger, level)                                                                              \
+    if (logger->get_level() <= level)                                                                                 \
+    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
+                                                                                           __FILE__,                  \
+                                                                                           __LINE__, 0,               \
+                                                                                           bluesky::get_threadID(),   \
+                                                                                           bluesky::get_fiberID(),    \
+                                                                                           time(0))))                 \
         .get_ss()
 
 //使用logger写入日志级别为debug的日志
@@ -263,22 +283,22 @@ namespace bluesky
 //使用logger写入日志级别为info的日志
 #define BLUESKY_LOG_INFO(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::INFO)
 //使用logger写入日志级别为warnning的日志
-#define BLUESKY_LOG_WARNNING(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::WARNNING)
+#define BLUESKY_LOG_WARN(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::WARN)
 //使用logger写入日志级别为error的日志
 #define BLUESKY_LOG_ERROR(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::ERROR)
 //使用logger写入日志级别为fatal的日志
 #define BLUESKY_LOG_FATAL(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::FATAL)
 
 /*-----------------格式化 printf日志-----------------*/
-#define BLUESKY_LOG_FMT_LEVEL(logger, level, fmt, ...)                                                      \
-    if (logger->get_level() <= level)                                                                       \
-    bluesky::LogEventWrap(std::shared_ptr<bluesky::LogEvent>(logger, new bluesky::LogEvent(logger, level,           \
-                                                                                   __FILE__,                \
-                                                                                   __LINE__, 0,             \
-                                                                                   bluesky::get_threadID(), \
-                                                                                   bluesky::get_fiberID(),  \
-                                                                                   time(0))))               \
-        .get_event()                                                                                        \
+#define BLUESKY_LOG_FMT_LEVEL(logger, level, fmt, ...)                                                                \
+    if (logger->get_level() <= level)                                                                                 \
+    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
+                                                                                           __FILE__,                  \
+                                                                                           __LINE__, 0,               \
+                                                                                           bluesky::get_threadID(),   \
+                                                                                           bluesky::get_fiberID(),    \
+                                                                                           time(0))))                 \
+        .get_event()                                                                                                  \
         ->format(fmt, __VA_ARGS__)
 
 //使用logger写入日志级别为debug的日志(格式化,printf)
@@ -286,7 +306,7 @@ namespace bluesky
 //使用logger写入日志级别为info的日志(格式化,printf)
 #define BLUESKY_LOG_FMT_INFO(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::INFO, fmt, __VA_ARGS__)
 //使用logger写入日志级别为warnning的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_WARNNING(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::WARNNING, fmt, __VA_ARGS__)
+#define BLUESKY_LOG_FMT_WARN(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::WARN, fmt, __VA_ARGS__)
 //使用logger写入日志级别为error的日志(格式化,printf)
 #define BLUESKY_LOG_FMT_ERROR(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::ERROR, fmt, __VA_ARGS__)
 //使用logger写入日志级别为fatal的日志(格式化,printf)
