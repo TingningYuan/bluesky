@@ -3,6 +3,7 @@
 
 #include "singleton.h"
 #include "util.h"
+#include "locker.h"
 #include <string>
 #include <iostream>
 #include <memory>
@@ -14,6 +15,60 @@
 #include <sstream>
 #include <stdint.h>
 #include <stdarg.h>
+
+
+
+/*----------------------流式日志------------------*/
+//使用logger写入日志级别为level的日志
+#define BLUESKY_LOG_LEVEL(logger, level)                                                                              \
+    if (logger->get_level() <= level)                                                                                 \
+    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
+                                                                                           __FILE__,                  \
+                                                                                           __LINE__, 0,               \
+                                                                                           bluesky::get_threadID(),   \
+                                                                                           bluesky::get_fiberID(),    \
+                                                                                           time(0))))                 \
+        .get_ss()
+
+//使用logger写入日志级别为debug的日志
+#define BLUESKY_LOG_DEBUG(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::DEBUG)
+//使用logger写入日志级别为info的日志
+#define BLUESKY_LOG_INFO(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::INFO)
+//使用logger写入日志级别为warnning的日志
+#define BLUESKY_LOG_WARN(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::WARN)
+//使用logger写入日志级别为error的日志
+#define BLUESKY_LOG_ERROR(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::ERROR)
+//使用logger写入日志级别为fatal的日志
+#define BLUESKY_LOG_FATAL(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::FATAL)
+
+/*-----------------格式化 printf日志-----------------*/
+#define BLUESKY_LOG_FMT_LEVEL(logger, level, fmt, ...)                                                                \
+    if (logger->get_level() <= level)                                                                                 \
+    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
+                                                                                           __FILE__,                  \
+                                                                                           __LINE__, 0,               \
+                                                                                           bluesky::get_threadID(),   \
+                                                                                           bluesky::get_fiberID(),    \
+                                                                                           time(0))))                 \
+        .get_event()                                                                                                  \
+        ->format(fmt, __VA_ARGS__)
+
+//使用logger写入日志级别为debug的日志(格式化,printf)
+#define BLUESKY_LOG_FMT_DEBUG(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::DEBUG, fmt, __VA_ARGS__)
+//使用logger写入日志级别为info的日志(格式化,printf)
+#define BLUESKY_LOG_FMT_INFO(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::INFO, fmt, __VA_ARGS__)
+//使用logger写入日志级别为warnning的日志(格式化,printf)
+#define BLUESKY_LOG_FMT_WARN(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::WARN, fmt, __VA_ARGS__)
+//使用logger写入日志级别为error的日志(格式化,printf)
+#define BLUESKY_LOG_FMT_ERROR(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::ERROR, fmt, __VA_ARGS__)
+//使用logger写入日志级别为fatal的日志(格式化,printf)
+#define BLUESKY_LOG_FMT_FATAL(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::FATAL, fmt, __VA_ARGS__)
+
+//获取主日志器
+#define BLUESKY_LOG_ROOT() bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_root()
+//获取指定名称的日志器，不存在则创建
+#define BLUESKY_LOG_NAME(name) bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_logger(name)
+
 
 namespace bluesky
 {
@@ -46,6 +101,7 @@ namespace bluesky
     {
     public:
         typedef std::shared_ptr<LoggerManager> Ptr;
+        typedef Mutex MutexType;
 
         LoggerManager();
         std::shared_ptr<Logger> get_logger(const std::string &name);
@@ -57,6 +113,7 @@ namespace bluesky
     private:
         std::map<std::string, std::shared_ptr<Logger>> loggers_;
         std::shared_ptr<Logger> root_;
+        MutexType mutex_;
     };
 
     typedef bluesky::Singleton<LoggerManager> LoggerMgr;
@@ -128,6 +185,7 @@ namespace bluesky
 
     public:
         typedef std::shared_ptr<Logger> Ptr;
+        typedef Mutex MutexType;
 
         Logger(const std::string &name = "root", LogLevel::Level level = LogLevel::DEBUG);
 
@@ -163,6 +221,7 @@ namespace bluesky
         std::list<std::shared_ptr<LogAppender>> appenders_;
         std::shared_ptr<LogFormatter> formatter_;
         Logger::Ptr root_;
+        MutexType mutex_;
     };
 
     //日志格式
@@ -218,7 +277,7 @@ namespace bluesky
     {
     public:
         typedef std::shared_ptr<LogAppender> Ptr;
-
+        typedef Mutex MutexType;
         virtual ~LogAppender() {}
 
         virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event) = 0;
@@ -226,14 +285,15 @@ namespace bluesky
 
     public:
         void set_formatter(std::shared_ptr<LogFormatter> formatter);
-        std::shared_ptr<LogFormatter> get_formatter() const { return formatter_; }
+        std::shared_ptr<LogFormatter> get_formatter();
         LogLevel::Level get_level() const { return level_; }
         void set_level(LogLevel::Level level) { level_ = level; }
 
     public:
         LogLevel::Level level_;
         std::shared_ptr<LogFormatter> formatter_;
-        bool has_formatter_ = false;
+        bool hasFormatter_ = false;
+        MutexType mutex_;
     };
 
     //输出到控制台
@@ -261,60 +321,10 @@ namespace bluesky
     private:
         std::string filename_;
         std::ofstream filestream_;
+        uint64_t lastTime_=0;
     };
 
-
+    
 } //end of namespace
-
-/*----------------------流式日志------------------*/
-//使用logger写入日志级别为level的日志
-#define BLUESKY_LOG_LEVEL(logger, level)                                                                              \
-    if (logger->get_level() <= level)                                                                                 \
-    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
-                                                                                           __FILE__,                  \
-                                                                                           __LINE__, 0,               \
-                                                                                           bluesky::get_threadID(),   \
-                                                                                           bluesky::get_fiberID(),    \
-                                                                                           time(0))))                 \
-        .get_ss()
-
-//使用logger写入日志级别为debug的日志
-#define BLUESKY_LOG_DEBUG(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::DEBUG)
-//使用logger写入日志级别为info的日志
-#define BLUESKY_LOG_INFO(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::INFO)
-//使用logger写入日志级别为warnning的日志
-#define BLUESKY_LOG_WARN(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::WARN)
-//使用logger写入日志级别为error的日志
-#define BLUESKY_LOG_ERROR(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::ERROR)
-//使用logger写入日志级别为fatal的日志
-#define BLUESKY_LOG_FATAL(logger) BLUESKY_LOG_LEVEL(logger, bluesky::LogLevel::FATAL)
-
-/*-----------------格式化 printf日志-----------------*/
-#define BLUESKY_LOG_FMT_LEVEL(logger, level, fmt, ...)                                                                \
-    if (logger->get_level() <= level)                                                                                 \
-    bluesky::LogEventWrap(logger, std::shared_ptr<bluesky::LogEvent>(new bluesky::LogEvent(logger->get_name(), level, \
-                                                                                           __FILE__,                  \
-                                                                                           __LINE__, 0,               \
-                                                                                           bluesky::get_threadID(),   \
-                                                                                           bluesky::get_fiberID(),    \
-                                                                                           time(0))))                 \
-        .get_event()                                                                                                  \
-        ->format(fmt, __VA_ARGS__)
-
-//使用logger写入日志级别为debug的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_DEBUG(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::DEBUG, fmt, __VA_ARGS__)
-//使用logger写入日志级别为info的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_INFO(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::INFO, fmt, __VA_ARGS__)
-//使用logger写入日志级别为warnning的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_WARN(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::WARN, fmt, __VA_ARGS__)
-//使用logger写入日志级别为error的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_ERROR(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::ERROR, fmt, __VA_ARGS__)
-//使用logger写入日志级别为fatal的日志(格式化,printf)
-#define BLUESKY_LOG_FMT_FATAL(logger, fmt, ...) BLUESKY_LOG_FMT_LEVEL(logger, bluesky::LogLevel::FATAL, fmt, __VA_ARGS__)
-
-//获取主日志器
-#define BLUESKY_LOG_ROOT() bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_root()
-//获取指定名称的日志器，不存在则创建
-#define BLUESKY_LOG_NAME(name) bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_logger(name)
 
 #endif

@@ -41,7 +41,7 @@ namespace bluesky
                 if (n["appenders"].IsDefined())
                 {
                     std::cout << std::endl
-                              << "*****" << lgd.name << " = " << n["appenders"].size() << std::endl;
+                              << "--------Logger Appender's size: " << lgd.name << " = " << n["appenders"].size() << std::endl;
                     for (auto j = 0; j < n["appenders"].size(); j++)
                     {
                         auto app = n["appenders"][j];
@@ -85,7 +85,7 @@ namespace bluesky
                         lgd.appenders.push_back(new_app);
                     }
                 }
-                std::cout << "$$$$$" << lgd.name << " = " << lgd.appenders.size() << std::endl;
+                //std::cout << "$$$$$" << lgd.name << " = " << lgd.appenders.size() << std::endl;
                 st.insert(lgd);
             }
             return st;
@@ -121,6 +121,8 @@ namespace bluesky
                         if (app.type == 1)
                         {
                             app_node["type"] = "FileLogAppender";
+                            app_node["file"] = app.file;
+                            /*
                             if (!app.file.empty())
                             {
 
@@ -131,6 +133,7 @@ namespace bluesky
 
                                 app_node["file"] = " ";
                             }
+                            */
                         }
                         else if (app.type == 2)
                         {
@@ -160,15 +163,15 @@ namespace bluesky
 
     LogIniter::LogIniter()
     {
-        g_log_defines->add_listener(0xF1E231,
-                                    [](const std::set<LogDefine> &old_value,
+        g_log_defines->add_listener([](const std::set<LogDefine> &old_value,
                                        const std::set<LogDefine> &new_value)
                                     {
                                         BLUESKY_LOG_INFO(BLUESKY_LOG_ROOT()) << "log config changed";
                                         for (auto &i : new_value)
                                         {
                                             auto iter = old_value.find(i);
-                                            std::shared_ptr<Logger> logger;
+                                            std::shared_ptr<Logger> logger = BLUESKY_LOG_NAME(i.name);
+                                            /*
                                             if (iter == old_value.end())
                                             {
                                                 logger = BLUESKY_LOG_NAME(i.name);
@@ -180,6 +183,8 @@ namespace bluesky
                                                     logger = BLUESKY_LOG_NAME(i.name);
                                                 }
                                             }
+                                            */
+
                                             logger->set_level(i.level);
                                             if (!i.formatter.empty())
                                             {
@@ -198,6 +203,16 @@ namespace bluesky
                                                     new_app.reset(new StdoutLogAppender);
                                                 }
                                                 new_app->set_level(app.level);
+                                                if(!app.formatter.empty()){
+                                                    LogFormatter::Ptr fmt(new LogFormatter(app.formatter));
+                                                    if(!fmt->is_error())
+                                                    {
+                                                        new_app->set_formatter(fmt);
+                                                    }else{
+                                                        std::cout << "log.name = " << i.name << "  appender type = " << app.type
+                                                                  << "  formatter = " << app.formatter << "  is invalid" << std::endl;
+                                                    }
+                                                }
                                                 logger->add_appender(new_app);
                                             }
                                         }

@@ -15,6 +15,8 @@ namespace bluesky
 
     std::shared_ptr<Logger> LoggerManager::get_logger(const std::string &name)
     {
+        MutexType::Lock lock(mutex_);
+
         auto iter = loggers_.find(name);
         if (iter != loggers_.end())
         {
@@ -23,13 +25,14 @@ namespace bluesky
         std::shared_ptr<Logger> logger(new Logger(name));
         logger->root_ = root_;
         loggers_[name] = logger;
-
         return logger;
     }
 
     std::string LoggerManager::toYamlString()
     {
         YAML::Node node;
+
+        MutexType::Lock lock(mutex_);
         for (auto &logger : loggers_)
         {
             node.push_back(YAML::Load(logger.second->toYamlString()));
@@ -165,6 +168,8 @@ namespace bluesky
         if (level >= level_)
         {
             auto self = shared_from_this();
+
+            MutexType::Lock lock(mutex_);
             if (!appenders_.empty())
             {
                 for (auto &app : appenders_)
@@ -208,6 +213,7 @@ namespace bluesky
     /*---------------------增删appender-------------*/
     void Logger::add_appender(std::shared_ptr<LogAppender> appender)
     {
+        MutexType::Lock lock(mutex_);
         if (!appender->get_formatter())
         {
             appender->set_formatter(formatter_);
@@ -217,6 +223,7 @@ namespace bluesky
 
     void Logger::del_appender(std::shared_ptr<LogAppender> appender)
     {
+        MutexType::Lock lock(mutex_);
         for (auto iter = appenders_.begin();
              iter != appenders_.end(); iter++)
         {
@@ -230,15 +237,25 @@ namespace bluesky
 
     void Logger::clear_appender()
     {
+        MutexType::Lock lock(mutex_);
         appenders_.clear();
     }
 
     void Logger::set_formatter(std::shared_ptr<LogFormatter> &formatter)
     {
+        MutexType::Lock lock(mutex_);
         formatter_ = formatter;
+
+        for (auto &appender : appenders_)
+        {
+            MutexType::Lock lock2(appender->mutex_);
+            appender->formatter_ = formatter_;
+           
+        }
     }
     void Logger::set_formatter(const std::string &value)
     {
+        MutexType::Lock lock(mutex_);
         std::shared_ptr<LogFormatter> new_value(new LogFormatter(value));
         if (new_value->is_error())
         {
@@ -247,10 +264,21 @@ namespace bluesky
             return;
         }
         formatter_ = new_value;
+        for(auto &appender:appenders_)
+        {
+            MutexType::Lock lock2(appender->mutex_);
+            appender->formatter_ = formatter_;
+        }
+    }
+    std::shared_ptr<LogFormatter> Logger::get_formatter()
+    {
+        MutexType::Lock lock(mutex_);
+        return formatter_;
     }
 
     std::string Logger::toYamlString()
     {
+        MutexType::Lock lock(mutex_);
         YAML::Node node;
         node["name"] = name_;
         if (level_ != LogLevel::UNKNOW)
@@ -273,26 +301,38 @@ namespace bluesky
     /*------------------Logger End--------------*/
 
     /*------------------Appender----------------*/
-    void
-    LogAppender::set_formatter(std::shared_ptr<LogFormatter> formatter)
+    void LogAppender::set_formatter(std::shared_ptr<LogFormatter> formatter)
     {
+        MutexType::Lock lock(mutex_);
         formatter_ = formatter;
         if (formatter_)
         {
-            has_formatter_ = true;
+            hasFormatter_ = true;
         }
+        else
+        {
+            hasFormatter_ = false;
+        }
+    }
+
+    std::shared_ptr<LogFormatter> LogAppender::get_formatter()
+    {
+        MutexType::Lock lock(mutex_);
+        return formatter_;
     }
 
     void StdoutLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event)
     {
-        if (level >= get_level())
+        MutexType::Lock lock(mutex_);
+        if (level >= level_)
         {
-            std::cout << get_formatter()->format(logger, level, event);
+            std::cout << formatter_->format(logger, level, event);
         }
     }
 
     std::string StdoutLogAppender::toYamlString()
     {
+        MutexType::Lock lock(mutex_);
         YAML::Node node;
         node["type"] = "StdoutLogAppender";
         if (level_ != LogLevel::UNKNOW)
@@ -310,8 +350,10 @@ namespace bluesky
 
     std::string FileLogAppender::toYamlString()
     {
+        MutexType::Lock lock(mutex_);
         YAML::Node node;
         node["type"] = "FileLogAppender";
+        node["file"] = filename_;
         if (level_ != LogLevel::UNKNOW)
         {
             node["level"] = LogLevel::to_string(level_);
@@ -324,9 +366,11 @@ namespace bluesky
         ss << node;
         return ss.str();
     }
+
     FileLogAppender::FileLogAppender(const std::string &filename)
         : filename_(filename)
     {
+        MutexType::Lock lock(mutex_);
         if (!filestream_.is_open())
         {
             filestream_.open(filename_);
@@ -335,9 +379,16 @@ namespace bluesky
 
     void FileLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, std::shared_ptr<LogEvent> event)
     {
-        if (level >= get_level())
+        MutexType::Lock lock(mutex_);
+        if (level >= level_)
         {
-            filestream_ << get_formatter()->format(logger, level, event);
+            uint64_t now = time(0);
+            if (now != lastTime_)
+            {
+                reopen();
+                lastTime_ = now;
+            }
+            filestream_ << formatter_->format(logger, level, event);
         }
     }
 

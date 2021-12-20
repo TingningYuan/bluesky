@@ -15,24 +15,36 @@ set(LIB_SRC
     bluesky/util.cc
     bluesky/config.cc
     bluesky/log_config.cc
+    bluesky/thread.cc
     )
 
 find_library(YAMLCPP yaml-cpp)
-message("***",${YAMLCPP})
+find_library(PTHREAD pthread)
+
+set(LIBS 
+        bluesky
+        pthread 
+        yaml-cpp)
+
+message("***",${LIBS})
 #使用特定的源码为项目增加lib
 add_library(bluesky SHARED ${LIB_SRC})
 
 
 
 #指定生成目标
-add_executable(test tests/test.cc)
-add_dependencies(test bluesky)
+add_executable(test_log tests/test_log.cc)
+add_dependencies(test_log bluesky)
 #将目标文件与库文件进行链接
-target_link_libraries(test bluesky ${YAMLCPP})
+target_link_libraries(test_log ${LIBS})
 
 add_executable(test_config tests/test_config.cc)
 add_dependencies(test_config bluesky)
-target_link_libraries(test_config bluesky ${YAMLCPP})
+target_link_libraries(test_config ${LIBS})
+
+add_executable(test_thread tests/test_thread.cc)
+add_dependencies(test_thread bluesky)
+target_link_libraries(test_thread ${LIBS})
 
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)

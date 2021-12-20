@@ -171,7 +171,7 @@ void test_class()
         BLUESKY_LOG_INFO(BLUESKY_LOG_ROOT()) << prefix << ": size=" << m.size();                               \
     }
 
-    g_person->add_listener(10, [](const Person &old_value, const Person &new_value)
+    g_person->add_listener([](const Person &old_value, const Person &new_value)
                            { BLUESKY_LOG_INFO(BLUESKY_LOG_ROOT()) << "old_value=" << old_value.toString()
                                                                   << " new_value=" << new_value.toString(); });
 
@@ -189,7 +189,7 @@ void test_class()
 void test_log()
 {
     static std::shared_ptr<bluesky::Logger> system_log = BLUESKY_LOG_NAME("system");
-    BLUESKY_LOG_INFO(system_log) << "hello system" << std::endl;
+    BLUESKY_LOG_INFO(system_log) << "hello system";
     std::cout << bluesky::LoggerMgr::get_instance().toYamlString() << std::endl;
     YAML::Node root = YAML::LoadFile("./conf/log.yml");
     bluesky::Config::load_from_yaml(root);
@@ -198,6 +198,12 @@ void test_log()
     std::cout << "=============" << std::endl;
     std::cout << root << std::endl;
     BLUESKY_LOG_INFO(system_log) << "hello system" << std::endl;
+    BLUESKY_LOG_INFO(system_log) << "难受啊";
+    //BLUESKY_LOG_INFO(BLUESKY_LOG_ROOT()) << "helloo root";
+
+    bluesky::FileLogAppender::Ptr file_appender(new bluesky::FileLogAppender("./test_system.txt"));
+    system_log->add_appender(file_appender);
+    BLUESKY_LOG_INFO(system_log) << "test file appender";
 }
 
 #endif

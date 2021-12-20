@@ -12,6 +12,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -273,6 +274,8 @@ namespace bluesky
     public:
         typedef std::shared_ptr<ConfigVar> Ptr;
         typedef std::function<void(const T &old_value, const T &new_value)> on_change_cb;
+        typedef Mutex MutexType;   
+    
         ConfigVar(const std::string &name, const T &value, const std::string &description = "")
             : ConfigVarBase(name, description), value_(value)
         {
@@ -282,6 +285,7 @@ namespace bluesky
         {
             try
             {
+                MutexType::Lock lock(mutex_);
                 return ToStr()(value_);
             }
             catch (std::exception &e)
@@ -306,8 +310,13 @@ namespace bluesky
             return true;
         }
 
-        const T get_value() const { return value_; }
-        void set_value(const T &value) { 
+        const T get_value()
+        { 
+            MutexType::Lock lock(mutex_);
+            return value_;
+        }
+        void set_value(const T &value) {
+            MutexType::Lock lock(mutex_);
             if(value==value_){
                 return;
             }
@@ -317,18 +326,29 @@ namespace bluesky
             value_ = value;
         }
         std::string get_typename() const override { return typeid(T).name(); }
-        void add_listener(const uint64_t key, const on_change_cb& callback){
-            callbacks_[key] = callback;
+        uint64_t add_listener(const on_change_cb& callback)
+        {
+            static uint64_t key_id=0;
+            MutexType::Lock lock(mutex_);
+            ++key_id;
+            callbacks_[key_id] = callback;
+            return key_id;
         }
-        void delete_listener(uint64_t key){
+        void delete_listener(uint64_t key)
+        {
+            MutexType::Lock lock(mutex_);
             callbacks_.erase(key);
         }
-        on_change_cb get_listener(uint64_t key){
+        on_change_cb get_listener(uint64_t key)
+        {
+            MutexType::Lock lock(mutex_);
             auto iter = callbacks_.find(key);
             return iter == callbacks_.end() ? nullptr : iter->second;
         }
 
-        void clearListener(){
+        void clearListener()
+        {
+            MutexType::Lock lock(mutex_);
             callbacks_.clear();
         }
 
@@ -336,6 +356,7 @@ namespace bluesky
         T value_;
         //变更通知回调数组
         std::map<uint64_t, on_change_cb> callbacks_;
+        MutexType mutex_;
     };
 
     /*配置集合类。 提供所有配置项的ConfigVar的统一管理功能。
@@ -352,6 +373,7 @@ namespace bluesky
     {
     public:
         typedef std::map<std::string, std::shared_ptr<ConfigVarBase>> ConfigVarMap;
+        typedef Mutex MutexType;
 
         template <class T>
         /*将指定名称的配置项加入进来*/
@@ -359,8 +381,9 @@ namespace bluesky
                                                              const T &value,
                                                              const std::string &description = "")
         {
-            auto iter=configs_.find(name);
-            if(iter!=configs_.end())
+            MutexType::Lock lock(get_mutex()); 
+            auto iter=get_configs().find(name);
+            if(iter!=get_configs().end())
             {
             auto temp = std::dynamic_pointer_cast<ConfigVar<T>>(iter->second);
             if (temp)
@@ -382,23 +405,33 @@ namespace bluesky
             }
 
             typename std::shared_ptr<ConfigVar<T>> v(new ConfigVar<T>(name, value, description));
-            configs_[name] = v;
+            get_configs()[name] = v;
             return v;
         }
         template <class T>
         static typename std::shared_ptr<ConfigVar<T>> lookup(const std::string &name)
         {
-            auto iter = configs_.find(name);
-            if (iter == configs_.end())
+            MutexType::Lock lock(get_mutex());
+            auto iter = get_configs().find(name);
+            if (iter == get_configs().end())
                 return nullptr;
             return std::dynamic_pointer_cast<ConfigVar<T>>(iter->second);
         }
 
         static void load_from_yaml(const YAML::Node &root);
         static std::shared_ptr<ConfigVarBase> lookup_base(const std::string &name);
-
+    
+        static void visit_configs(std::function<void(ConfigVarBase::Ptr)>& callback);
+    
     private:
-        static ConfigVarMap configs_;
+        static ConfigVarMap& get_configs(){
+            static ConfigVarMap configs_;
+            return configs_;
+        }
+        static MutexType& get_mutex(){
+            static MutexType mutex_;
+            return mutex_;
+        }
     };
 
 } //end of namespace

@@ -3,7 +3,7 @@
 
 namespace bluesky
 {
-    Config::ConfigVarMap Config::configs_;
+    //Config::ConfigVarMap Config::configs_;
 
     //把所有map的形式转换成pair[key: node]
     static void list_all_member(const std::string &prefix,
@@ -60,12 +60,23 @@ namespace bluesky
     }
     std::shared_ptr<ConfigVarBase> Config::lookup_base(const std::string &name)
     {
-        auto iter = configs_.find(name);
-        if (iter == configs_.end())
+        MutexType::Lock lock(get_mutex());
+        auto iter = get_configs().find(name);
+        if (iter == get_configs().end())
         {
             return nullptr;
         }
         return iter->second;
+    }
+
+    void Config::visit_configs(std::function<void(ConfigVarBase::Ptr)>& callback)
+    {
+        MutexType::Lock lock(get_mutex());
+        ConfigVarMap& configs=get_configs();
+        for(auto iter=configs.begin(); iter!=configs.end();iter++){
+            callback(iter->second);
+        }
+
     }
 
 } //end of namespace
