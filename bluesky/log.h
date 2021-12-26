@@ -66,6 +66,7 @@
 
 //获取主日志器
 #define BLUESKY_LOG_ROOT() bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_root()
+
 //获取指定名称的日志器，不存在则创建
 #define BLUESKY_LOG_NAME(name) bluesky::Singleton<bluesky::LoggerManager>::get_instance().get_logger(name)
 

@@ -16,6 +16,7 @@ set(LIB_SRC
     bluesky/config.cc
     bluesky/log_config.cc
     bluesky/thread.cc
+    bluesky/fiber.cc
     )
 
 find_library(YAMLCPP yaml-cpp)
@@ -46,6 +47,13 @@ add_executable(test_thread tests/test_thread.cc)
 add_dependencies(test_thread bluesky)
 target_link_libraries(test_thread ${LIBS})
 
+add_executable(test_macro tests/test_macro.cc)
+add_dependencies(test_macro bluesky)
+target_link_libraries(test_macro ${LIBS})
+
+add_executable(test_fiber tests/test_fiber.cc)
+add_dependencies(test_fiber bluesky)
+target_link_libraries(test_fiber ${LIBS})
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
